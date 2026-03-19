@@ -57,6 +57,10 @@ func (m *Manager) EnsureLayout() error {
 }
 
 func (m *Manager) SaveProfile(name string, vars map[string]string) error {
+	return m.saveProfileWithHeader(name, "# Token is stored in macOS Keychain", vars)
+}
+
+func (m *Manager) saveProfileWithHeader(name, comment string, vars map[string]string) error {
 	if err := m.EnsureLayout(); err != nil {
 		return err
 	}
@@ -70,7 +74,7 @@ func (m *Manager) SaveProfile(name string, vars map[string]string) error {
 
 	var b strings.Builder
 	b.WriteString("# Managed by anthro-env\n")
-	b.WriteString("# Token is stored in macOS Keychain\n")
+	b.WriteString(comment + "\n")
 	for _, k := range keys {
 		v := strings.TrimSpace(vars[k])
 		if v == "" {
@@ -108,7 +112,7 @@ func (m *Manager) RemoveProfile(name string) error {
 	if err := os.Remove(path); err != nil {
 		return err
 	}
-	_ = secure.DeleteToken(name)
+	_ = m.DeleteToken(name)
 	active, _ := m.CurrentProfile()
 	if active == name {
 		_ = os.Remove(m.currentFile)
@@ -183,14 +187,37 @@ func (m *Manager) ReadProfile(name string) (map[string]string, error) {
 }
 
 func (m *Manager) SaveToken(name, token string) error {
+	if secure.IsSSHSession() {
+		fmt.Fprintln(os.Stderr, "Warning: SSH session detected. Cannot write to macOS Keychain.")
+		fmt.Fprintln(os.Stderr, "         Token will be stored in plaintext in the profile config file.")
+		vars, err := m.ReadProfile(name)
+		if err != nil {
+			vars = map[string]string{}
+		}
+		vars["ANTHROPIC_AUTH_TOKEN"] = token
+		return m.saveProfileWithHeader(name,
+			"# SSH session: token stored in plaintext (Keychain unavailable)", vars)
+	}
 	return secure.SaveToken(name, token)
 }
 
 func (m *Manager) DeleteToken(name string) error {
+	if secure.IsSSHSession() {
+		vars, err := m.ReadProfile(name)
+		if err != nil {
+			return nil
+		}
+		delete(vars, "ANTHROPIC_AUTH_TOKEN")
+		return m.SaveProfile(name, vars)
+	}
 	return secure.DeleteToken(name)
 }
 
 func (m *Manager) MigratePlaintextTokens() (int, int, error) {
+	if secure.IsSSHSession() {
+		return 0, 0, fmt.Errorf(
+			"SSH session: token migration to Keychain is not available in SSH environments")
+	}
 	profiles, err := m.ListProfiles()
 	if err != nil {
 		return 0, 0, err
@@ -233,10 +260,11 @@ func (m *Manager) ExportSnippet() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	token, _ := secure.ReadToken(active)
-	if token != "" {
+	token, err := secure.ReadToken(active)
+	if err == nil && token != "" {
 		vars["ANTHROPIC_AUTH_TOKEN"] = token
 	}
+	// 若 Keychain 读取失败，保留 vars 中来自 .env 的明文 token（SSH 降级路径）
 	var b strings.Builder
 	for _, k := range anthroVars {
 		b.WriteString("unset ")
@@ -280,6 +308,11 @@ func (m *Manager) Doctor() []DoctorReport {
 				continue
 			}
 			if strings.TrimSpace(vars["ANTHROPIC_AUTH_TOKEN"]) != "" {
+				// 读文件注释，若注释头含 "SSH session" 则不计入明文警告
+				rawData, _ := os.ReadFile(filepath.Join(m.profilesDir, p+".env"))
+				if strings.Contains(string(rawData), "SSH session") {
+					continue
+				}
 				plaintextCount++
 			}
 		}
@@ -299,7 +332,12 @@ func (m *Manager) Doctor() []DoctorReport {
 	}
 	active, err := m.CurrentProfile()
 	if err == nil && active != "" {
-		if _, err := secure.ReadToken(active); err != nil {
+		if secure.IsSSHSession() {
+			reports = append(reports, DoctorReport{
+				Status:  "INFO",
+				Message: "SSH session: Keychain not available, token stored in profile file",
+			})
+		} else if _, err := secure.ReadToken(active); err != nil {
 			reports = append(reports, DoctorReport{Status: "WARN", Message: "Keychain token missing or inaccessible for active profile"})
 		} else {
 			reports = append(reports, DoctorReport{Status: "OK", Message: "Keychain token is accessible"})
