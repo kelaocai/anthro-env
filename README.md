@@ -33,7 +33,7 @@ Manual shell edits quickly become messy.
 
 <img width="1536" height="1024" alt="banner (1)" src="https://github.com/user-attachments/assets/8cbdc798-96ac-4a27-95a2-13667d942bcf" />
 
-#### screenshot
+### screenshots
 
 <img width="419" height="219" alt="image" src="https://github.com/user-attachments/assets/ca136501-52aa-4717-868e-4088d3d4e8e2" />
 
