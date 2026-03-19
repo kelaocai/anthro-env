@@ -13,7 +13,7 @@ import (
 	"github.com/anthro-env/anthro-env/internal/ui"
 )
 
-var version = "dev"
+var version = "0.1.6"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -97,7 +97,11 @@ func runInit(mgr *core.Manager) error {
 	model, _ := reader.ReadString('\n')
 	model = strings.TrimSpace(model)
 
-	fmt.Print("ANTHROPIC_AUTH_TOKEN (stored in Keychain): ")
+	tokenHint := "stored in Keychain"
+	if core.IsSSHSession() {
+		tokenHint = "SSH mode: will be stored in plaintext"
+	}
+	fmt.Printf("ANTHROPIC_AUTH_TOKEN (%s): ", tokenHint)
 	token, _ := reader.ReadString('\n')
 	token = strings.TrimSpace(token)
 
@@ -144,7 +148,11 @@ func runMenu(mgr *core.Manager) error {
 	sort.Strings(profiles)
 	active, _ := mgr.CurrentProfile()
 
-	fmt.Printf("Current profile: %s\n", core.OrDefault(active, "none"))
+	activeDisplay := core.OrDefault(active, "none")
+	if active != "" {
+		activeDisplay = ui.BoldGreen(active)
+	}
+	fmt.Printf("Current profile: %s\n", activeDisplay)
 	fmt.Println("Select a profile:")
 	fmt.Println("[0] Exit")
 	for i, p := range profiles {
@@ -159,10 +167,11 @@ func runMenu(mgr *core.Manager) error {
 				tag += ", model: " + model
 			}
 			tag += ")"
+			fmt.Printf("[%d] %s%s\n", i+1, ui.BoldGreen(p), tag)
 		} else {
 			tag = " (model: " + model + ")"
+			fmt.Printf("[%d] %s%s\n", i+1, p, tag)
 		}
-		fmt.Printf("[%d] %s%s\n", i+1, p, tag)
 	}
 	fmt.Print("Enter number: ")
 	reader := bufio.NewReader(os.Stdin)
@@ -199,7 +208,7 @@ func runProfile(mgr *core.Manager, args []string) error {
 		active, _ := mgr.CurrentProfile()
 		for _, p := range profiles {
 			if p == active {
-				fmt.Printf("%s *\n", p)
+				fmt.Printf("%s *\n", ui.BoldGreen(p))
 			} else {
 				fmt.Println(p)
 			}
@@ -245,7 +254,11 @@ func runProfile(mgr *core.Manager, args []string) error {
 		fmt.Print("ANTHROPIC_MODEL (optional, press Enter to skip): ")
 		model, _ := reader.ReadString('\n')
 		model = strings.TrimSpace(model)
-		fmt.Print("ANTHROPIC_AUTH_TOKEN (stored in Keychain): ")
+		addTokenHint := "stored in Keychain"
+		if core.IsSSHSession() {
+			addTokenHint = "SSH mode: will be stored in plaintext"
+		}
+		fmt.Printf("ANTHROPIC_AUTH_TOKEN (%s): ", addTokenHint)
 		token, _ := reader.ReadString('\n')
 		token = strings.TrimSpace(token)
 		vars := map[string]string{}
@@ -312,7 +325,11 @@ func runProfile(mgr *core.Manager, args []string) error {
 			vars["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
 		}
 
-		fmt.Print("ANTHROPIC_AUTH_TOKEN [leave empty to keep, '-' to clear]: ")
+		editTokenHint := "leave empty to keep, '-' to clear"
+		if core.IsSSHSession() {
+			editTokenHint = "SSH mode: leave empty to keep, '-' to clear, stored in plaintext"
+		}
+		fmt.Printf("ANTHROPIC_AUTH_TOKEN [%s]: ", editTokenHint)
 		token, _ := reader.ReadString('\n')
 		token = strings.TrimSpace(token)
 		switch token {

@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/anthro-env/anthro-env/internal/secure"
 )
 
 var profileNameRegex = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -59,4 +61,9 @@ func MapKeysSorted(m map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// IsSSHSession 报告当前是否在 SSH 会话中
+func IsSSHSession() bool {
+	return secure.IsSSHSession()
 }
