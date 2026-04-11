@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9
+
+- README: add updated screenshot
+
 ## 0.1.8
 
 - Interactive `menu`: handle wrapped `EAGAIN` on non-blocking stdin (fixes immediate read error on macOS)

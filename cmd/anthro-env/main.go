@@ -17,7 +17,7 @@ import (
 	"golang.org/x/term"
 )
 
-var version = "0.1.8"
+var version = "0.1.9"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
