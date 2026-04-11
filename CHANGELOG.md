@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7
+
+- Deterministic key order in `anthro-env env` / `export` output
+- Document `env`, `export`, and `hook` in `--help` and READMEs
+- Interactive prompts propagate stdin read errors (no silent I/O failures)
+- `doctor` warns when `$SHELL` is unset or not zsh/bash
+- Keychain: invoke `/usr/bin/security` explicitly
+
 ## 0.1.6
 
 - Color highlight current profile in `ls` and `menu` commands (respects NO_COLOR)

@@ -8,10 +8,11 @@ import (
 )
 
 const serviceName = "anthro-env"
+const securityBinary = "/usr/bin/security"
 
 func SaveToken(profile, token string) error {
 	account := accountName(profile)
-	cmd := exec.Command("security", "add-generic-password", "-U", "-a", account, "-s", serviceName, "-w", token)
+	cmd := exec.Command(securityBinary, "add-generic-password", "-U", "-a", account, "-s", serviceName, "-w", token)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -22,7 +23,7 @@ func SaveToken(profile, token string) error {
 
 func ReadToken(profile string) (string, error) {
 	account := accountName(profile)
-	cmd := exec.Command("security", "find-generic-password", "-a", account, "-s", serviceName, "-w")
+	cmd := exec.Command(securityBinary, "find-generic-password", "-a", account, "-s", serviceName, "-w")
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -34,7 +35,7 @@ func ReadToken(profile string) (string, error) {
 
 func DeleteToken(profile string) error {
 	account := accountName(profile)
-	cmd := exec.Command("security", "delete-generic-password", "-a", account, "-s", serviceName)
+	cmd := exec.Command(securityBinary, "delete-generic-password", "-a", account, "-s", serviceName)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

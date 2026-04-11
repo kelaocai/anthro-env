@@ -24,6 +24,7 @@ But in practice many developers need to switch between:
 This usually means repeatedly editing environment variables like:
 
 - `ANTHROPIC_BASE_URL`
+- `ANTHROPIC_API_KEY`
 - `ANTHROPIC_AUTH_TOKEN`
 
 Manual shell edits quickly become messy.
@@ -105,7 +106,7 @@ Or use the menu:
 anthro-env menu
 ```
 
-If you already have plaintext `ANTHROPIC_AUTH_TOKEN` in old profile files:
+If you already have plaintext `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` in old profile files:
 
 ```bash
 anthro-env migrate-tokens
@@ -124,6 +125,8 @@ anthro-env use <name>      # Switch to and activate an environment; <name> is th
 anthro-env ls              # List all saved environments
 anthro-env current         # Show the currently active environment
 anthro-env rm <name>       # Remove an environment; <name> is the env name
+anthro-env hook <zsh|bash> # Print shell integration snippet (also installed by init)
+anthro-env env             # Print eval-able exports for the active profile (alias: export)
 anthro-env doctor          # Run diagnostics (check config/dependencies)
 anthro-env -v              # Show version
 ```
@@ -137,7 +140,8 @@ anthro-env edit <name>
 During edit:
 - `ANTHROPIC_BASE_URL`: press Enter to keep current value
 - `ANTHROPIC_MODEL`: press Enter to keep, input `-` to clear (use gateway default)
-- `ANTHROPIC_AUTH_TOKEN`: press Enter to keep Keychain value, input `-` to delete token from Keychain, input new value to overwrite
+- `API credential`: press Enter to keep Keychain value, input `-` to delete token from Keychain, input new value to overwrite
+- `MiniMax` profiles are exported as `ANTHROPIC_API_KEY`; other providers default to `ANTHROPIC_AUTH_TOKEN`
 
 Example:
 
@@ -154,7 +158,7 @@ anthro-env migrate-tokens
 ```
 
 What it does:
-- reads plaintext `ANTHROPIC_AUTH_TOKEN` from profile files
+- reads plaintext `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` from profile files
 - writes token into macOS Keychain for each profile
 - removes plaintext token from profile files
 - prints migration summary (`migrated` / `skipped`)
@@ -183,18 +187,20 @@ ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5
 ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5
 ```
 
-### Example 2: MiniMax-M2.5
+### Example 2: MiniMax-M2.7
 
 ```bash
-ANTHROPIC_AUTH_TOKEN=sk-********
-ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
+ANTHROPIC_API_KEY=sk-********
+ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-ANTHROPIC_MODEL=MiniMax-M2.5
-ANTHROPIC_SMALL_FAST_MODEL=MiniMax-M2.5
-ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.5
-ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.5
-ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.5
+ANTHROPIC_MODEL=MiniMax-M2.7
+ANTHROPIC_SMALL_FAST_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.7
 ```
+
+MiniMax's Anthropic-compatible endpoint currently expects `ANTHROPIC_API_KEY` and the `api.minimaxi.com` base URL.
 
 ### Example 3: ai-router (gateway default model routing)
 
@@ -233,7 +239,7 @@ If you manually add a new `xxx.env` file in that directory, it will be available
 - `anthro-env menu`
 - `anthro-env use xxx`
 
-If that file contains plaintext `ANTHROPIC_AUTH_TOKEN`, run:
+If that file contains plaintext `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, run:
 
 ```bash
 anthro-env migrate-tokens

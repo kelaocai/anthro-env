@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +14,7 @@ import (
 	"github.com/anthro-env/anthro-env/internal/ui"
 )
 
-var version = "0.1.6"
+var version = "0.1.7"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -80,8 +81,10 @@ func runInit(mgr *core.Manager) error {
 	fmt.Println("Anthro Env initialization")
 	fmt.Println("Tip: ANTHROPIC_MODEL is optional. Leave empty to use provider/gateway default model.")
 	fmt.Print("Profile name [default]: ")
-	name, _ := reader.ReadString('\n')
-	name = strings.TrimSpace(name)
+	name, err := readInputLine(reader)
+	if err != nil {
+		return err
+	}
 	if name == "" {
 		name = "default"
 	}
@@ -90,20 +93,26 @@ func runInit(mgr *core.Manager) error {
 	}
 
 	fmt.Print("ANTHROPIC_BASE_URL: ")
-	baseURL, _ := reader.ReadString('\n')
-	baseURL = strings.TrimSpace(baseURL)
+	baseURL, err := readInputLine(reader)
+	if err != nil {
+		return err
+	}
 
 	fmt.Print("ANTHROPIC_MODEL (optional, press Enter to skip): ")
-	model, _ := reader.ReadString('\n')
-	model = strings.TrimSpace(model)
+	model, err := readInputLine(reader)
+	if err != nil {
+		return err
+	}
 
 	tokenHint := "stored in Keychain"
 	if core.IsSSHSession() {
 		tokenHint = "SSH mode: will be stored in plaintext"
 	}
-	fmt.Printf("ANTHROPIC_AUTH_TOKEN (%s): ", tokenHint)
-	token, _ := reader.ReadString('\n')
-	token = strings.TrimSpace(token)
+	fmt.Printf("API credential (%s, exported as ANTHROPIC_API_KEY for MiniMax and ANTHROPIC_AUTH_TOKEN otherwise): ", tokenHint)
+	token, err := readInputLine(reader)
+	if err != nil {
+		return err
+	}
 
 	vars := map[string]string{}
 	if baseURL != "" {
@@ -175,7 +184,10 @@ func runMenu(mgr *core.Manager) error {
 	}
 	fmt.Print("Enter number: ")
 	reader := bufio.NewReader(os.Stdin)
-	in, _ := reader.ReadString('\n')
+	in, err := readInputLine(reader)
+	if err != nil {
+		return err
+	}
 	index, err := ui.ParseMenuSelection(in, len(profiles))
 	if err != nil {
 		return err
@@ -248,19 +260,25 @@ func runProfile(mgr *core.Manager, args []string) error {
 		}
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("ANTHROPIC_BASE_URL: ")
-		baseURL, _ := reader.ReadString('\n')
-		baseURL = strings.TrimSpace(baseURL)
+		baseURL, err := readInputLine(reader)
+		if err != nil {
+			return err
+		}
 		fmt.Println("Tip: ANTHROPIC_MODEL is optional. Leave empty to use provider/gateway default model.")
 		fmt.Print("ANTHROPIC_MODEL (optional, press Enter to skip): ")
-		model, _ := reader.ReadString('\n')
-		model = strings.TrimSpace(model)
+		model, err := readInputLine(reader)
+		if err != nil {
+			return err
+		}
 		addTokenHint := "stored in Keychain"
 		if core.IsSSHSession() {
 			addTokenHint = "SSH mode: will be stored in plaintext"
 		}
-		fmt.Printf("ANTHROPIC_AUTH_TOKEN (%s): ", addTokenHint)
-		token, _ := reader.ReadString('\n')
-		token = strings.TrimSpace(token)
+		fmt.Printf("API credential (%s, exported as ANTHROPIC_API_KEY for MiniMax and ANTHROPIC_AUTH_TOKEN otherwise): ", addTokenHint)
+		token, err := readInputLine(reader)
+		if err != nil {
+			return err
+		}
 		vars := map[string]string{}
 		if baseURL != "" {
 			vars["ANTHROPIC_BASE_URL"] = baseURL
@@ -295,8 +313,10 @@ func runProfile(mgr *core.Manager, args []string) error {
 
 		currentBaseURL := strings.TrimSpace(vars["ANTHROPIC_BASE_URL"])
 		fmt.Printf("ANTHROPIC_BASE_URL [keep: %s]: ", core.OrDefault(currentBaseURL, "<empty>"))
-		baseURL, _ := reader.ReadString('\n')
-		baseURL = strings.TrimSpace(baseURL)
+		baseURL, err := readInputLine(reader)
+		if err != nil {
+			return err
+		}
 		if baseURL != "" {
 			vars["ANTHROPIC_BASE_URL"] = baseURL
 		}
@@ -306,8 +326,10 @@ func runProfile(mgr *core.Manager, args []string) error {
 			currentModel = strings.TrimSpace(vars["ANTHROPIC_SMALL_FAST_MODEL"])
 		}
 		fmt.Printf("ANTHROPIC_MODEL [keep: %s, '-' to clear]: ", core.OrDefault(currentModel, "<empty>"))
-		model, _ := reader.ReadString('\n')
-		model = strings.TrimSpace(model)
+		model, err := readInputLine(reader)
+		if err != nil {
+			return err
+		}
 		switch model {
 		case "":
 			// keep
@@ -329,23 +351,20 @@ func runProfile(mgr *core.Manager, args []string) error {
 		if core.IsSSHSession() {
 			editTokenHint = "SSH mode: leave empty to keep, '-' to clear, stored in plaintext"
 		}
-		fmt.Printf("ANTHROPIC_AUTH_TOKEN [%s]: ", editTokenHint)
-		token, _ := reader.ReadString('\n')
-		token = strings.TrimSpace(token)
-		switch token {
-		case "":
-			// keep
-		case "-":
+		fmt.Printf("API credential [%s, exported as ANTHROPIC_API_KEY for MiniMax and ANTHROPIC_AUTH_TOKEN otherwise]: ", editTokenHint)
+		token, err := readInputLine(reader)
+		if err != nil {
+			return err
+		}
+
+		if token == "-" {
 			if err := mgr.DeleteToken(name); err != nil {
 				return err
 			}
-		default:
-			if err := mgr.SaveToken(name, token); err != nil {
-				return err
-			}
+			token = ""
 		}
 
-		if err := mgr.SaveProfile(name, vars); err != nil {
+		if err := mgr.SaveProfileAndToken(name, vars, token); err != nil {
 			return err
 		}
 		fmt.Printf("Updated profile: %s\n", name)
@@ -379,7 +398,7 @@ func runMigrateTokens(mgr *core.Manager) error {
 	}
 	fmt.Printf("Token migration finished. migrated=%d skipped=%d\n", migrated, skipped)
 	if migrated > 0 {
-		fmt.Println("Plaintext ANTHROPIC_AUTH_TOKEN has been removed from migrated profile files.")
+		fmt.Println("Plaintext API credentials have been removed from migrated profile files.")
 	}
 	return nil
 }
@@ -391,6 +410,19 @@ func runExport(mgr *core.Manager) error {
 	}
 	fmt.Print(snippet)
 	return nil
+}
+
+// readInputLine reads one line from stdin, trims spaces, and returns a non-nil error only on I/O failure (not on EOF).
+func readInputLine(r *bufio.Reader) (string, error) {
+	s, err := r.ReadString('\n')
+	s = strings.TrimSpace(s)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return s, nil
+		}
+		return "", err
+	}
+	return s, nil
 }
 
 func printUsage() {
@@ -406,5 +438,6 @@ func printUsage() {
   anthro-env current
   anthro-env rm <name>
   anthro-env hook <zsh|bash>
+  anthro-env env | export
   anthro-env doctor`)
 }

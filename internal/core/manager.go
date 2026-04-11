@@ -12,6 +12,7 @@ import (
 
 var anthroVars = []string{
 	"ANTHROPIC_BASE_URL",
+	"ANTHROPIC_API_KEY",
 	"ANTHROPIC_AUTH_TOKEN",
 	"API_TIMEOUT_MS",
 	"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
@@ -31,6 +32,90 @@ type Manager struct {
 type DoctorReport struct {
 	Status  string
 	Message string
+}
+
+func tokenVarName(vars map[string]string) string {
+	baseURL := strings.ToLower(strings.TrimSpace(vars["ANTHROPIC_BASE_URL"]))
+	if strings.Contains(baseURL, "minimax") || strings.Contains(baseURL, "minimaxi") {
+		return "ANTHROPIC_API_KEY"
+	}
+	if strings.TrimSpace(vars["ANTHROPIC_API_KEY"]) != "" {
+		return "ANTHROPIC_API_KEY"
+	}
+	return "ANTHROPIC_AUTH_TOKEN"
+}
+
+func setStoredToken(vars map[string]string, token string) {
+	delete(vars, "ANTHROPIC_API_KEY")
+	delete(vars, "ANTHROPIC_AUTH_TOKEN")
+	vars[tokenVarName(vars)] = token
+}
+
+func clearStoredToken(vars map[string]string) {
+	delete(vars, "ANTHROPIC_API_KEY")
+	delete(vars, "ANTHROPIC_AUTH_TOKEN")
+}
+
+func storedTokenValue(vars map[string]string) string {
+	if v := strings.TrimSpace(vars["ANTHROPIC_API_KEY"]); v != "" {
+		return v
+	}
+	return strings.TrimSpace(vars["ANTHROPIC_AUTH_TOKEN"])
+}
+
+func correctTokenFieldForBaseURL(baseURL string) string {
+	baseURL = strings.ToLower(strings.TrimSpace(baseURL))
+	if strings.Contains(baseURL, "minimax") || strings.Contains(baseURL, "minimaxi") {
+		return "ANTHROPIC_API_KEY"
+	}
+	return "ANTHROPIC_AUTH_TOKEN"
+}
+
+func maybeMigrateTokenField(vars map[string]string) {
+	token := storedTokenValue(vars)
+	if token == "" {
+		return
+	}
+
+	currentField := ""
+	if strings.TrimSpace(vars["ANTHROPIC_API_KEY"]) != "" {
+		currentField = "ANTHROPIC_API_KEY"
+	} else if strings.TrimSpace(vars["ANTHROPIC_AUTH_TOKEN"]) != "" {
+		currentField = "ANTHROPIC_AUTH_TOKEN"
+	}
+
+	correctField := correctTokenFieldForBaseURL(vars["ANTHROPIC_BASE_URL"])
+
+	if currentField != "" && currentField != correctField {
+		vars[correctField] = token
+		delete(vars, currentField)
+	}
+}
+
+func buildExportSnippet(vars map[string]string, token string) string {
+	if strings.TrimSpace(token) != "" {
+		setStoredToken(vars, token)
+	} else {
+		maybeMigrateTokenField(vars)
+	}
+	var b strings.Builder
+	for _, k := range anthroVars {
+		b.WriteString("unset ")
+		b.WriteString(k)
+		b.WriteString("\n")
+	}
+	for _, k := range MapKeysSorted(vars) {
+		v := vars[k]
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		b.WriteString("export ")
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(shellQuote(v))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func NewManager() *Manager {
@@ -194,11 +279,34 @@ func (m *Manager) SaveToken(name, token string) error {
 		if err != nil {
 			vars = map[string]string{}
 		}
-		vars["ANTHROPIC_AUTH_TOKEN"] = token
+		setStoredToken(vars, token)
 		return m.saveProfileWithHeader(name,
 			"# SSH session: token stored in plaintext (Keychain unavailable)", vars)
 	}
 	return secure.SaveToken(name, token)
+}
+
+// SaveProfileAndToken atomically saves both profile vars and token.
+// In SSH mode, token is embedded in vars and written once.
+// In non-SSH mode, token goes to Keychain and vars to profile file.
+func (m *Manager) SaveProfileAndToken(name string, vars map[string]string, token string) error {
+	if secure.IsSSHSession() {
+		fmt.Fprintln(os.Stderr, "Warning: SSH session detected. Cannot write to macOS Keychain.")
+		fmt.Fprintln(os.Stderr, "         Token will be stored in plaintext in the profile config file.")
+		if strings.TrimSpace(token) != "" {
+			setStoredToken(vars, token)
+		} else {
+			clearStoredToken(vars)
+		}
+		return m.saveProfileWithHeader(name,
+			"# SSH session: token stored in plaintext (Keychain unavailable)", vars)
+	}
+	if strings.TrimSpace(token) != "" {
+		if err := secure.SaveToken(name, token); err != nil {
+			return err
+		}
+	}
+	return m.SaveProfile(name, vars)
 }
 
 func (m *Manager) DeleteToken(name string) error {
@@ -207,7 +315,7 @@ func (m *Manager) DeleteToken(name string) error {
 		if err != nil {
 			return nil
 		}
-		delete(vars, "ANTHROPIC_AUTH_TOKEN")
+		clearStoredToken(vars)
 		return m.SaveProfile(name, vars)
 	}
 	return secure.DeleteToken(name)
@@ -231,7 +339,7 @@ func (m *Manager) MigratePlaintextTokens() (int, int, error) {
 			return migrated, skipped, fmt.Errorf("read profile %s: %w", name, err)
 		}
 
-		token := strings.TrimSpace(vars["ANTHROPIC_AUTH_TOKEN"])
+		token := storedTokenValue(vars)
 		if token == "" {
 			skipped++
 			continue
@@ -241,7 +349,7 @@ func (m *Manager) MigratePlaintextTokens() (int, int, error) {
 			return migrated, skipped, fmt.Errorf("save keychain token for %s: %w", name, err)
 		}
 
-		delete(vars, "ANTHROPIC_AUTH_TOKEN")
+		clearStoredToken(vars)
 		if err := m.SaveProfile(name, vars); err != nil {
 			return migrated, skipped, fmt.Errorf("rewrite profile %s: %w", name, err)
 		}
@@ -262,26 +370,10 @@ func (m *Manager) ExportSnippet() (string, error) {
 	}
 	token, err := secure.ReadToken(active)
 	if err == nil && token != "" {
-		vars["ANTHROPIC_AUTH_TOKEN"] = token
+		token = strings.TrimSpace(token)
 	}
 	// 若 Keychain 读取失败，保留 vars 中来自 .env 的明文 token（SSH 降级路径）
-	var b strings.Builder
-	for _, k := range anthroVars {
-		b.WriteString("unset ")
-		b.WriteString(k)
-		b.WriteString("\n")
-	}
-	for k, v := range vars {
-		if strings.TrimSpace(v) == "" {
-			continue
-		}
-		b.WriteString("export ")
-		b.WriteString(k)
-		b.WriteString("=")
-		b.WriteString(shellQuote(v))
-		b.WriteString("\n")
-	}
-	return b.String(), nil
+	return buildExportSnippet(vars, token), nil
 }
 
 func (m *Manager) Doctor() []DoctorReport {
@@ -307,7 +399,7 @@ func (m *Manager) Doctor() []DoctorReport {
 			if err != nil {
 				continue
 			}
-			if strings.TrimSpace(vars["ANTHROPIC_AUTH_TOKEN"]) != "" {
+			if storedTokenValue(vars) != "" {
 				// 读文件注释，若注释头含 "SSH session" 则不计入明文警告
 				rawData, _ := os.ReadFile(filepath.Join(m.profilesDir, p+".env"))
 				if strings.Contains(string(rawData), "SSH session") {
@@ -322,12 +414,33 @@ func (m *Manager) Doctor() []DoctorReport {
 			reports = append(reports, DoctorReport{Status: "OK", Message: "No plaintext token found in profile files"})
 		}
 	}
-	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".zshrc")); err == nil {
-		zshData, _ := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".zshrc"))
-		if strings.Contains(string(zshData), "anthro-env hook zsh") {
-			reports = append(reports, DoctorReport{Status: "OK", Message: "zsh hook installed"})
-		} else {
-			reports = append(reports, DoctorReport{Status: "WARN", Message: "zsh hook not found; run anthro-env init"})
+	shellPath := strings.TrimSpace(os.Getenv("SHELL"))
+	shellBase := LoginShellBase(shellPath)
+	if shellPath == "" {
+		reports = append(reports, DoctorReport{
+			Status:  "WARN",
+			Message: "$SHELL is unset; anthro-env only supports zsh and bash for hook integration",
+		})
+	} else if !SupportedHookShell(shellBase) {
+		reports = append(reports, DoctorReport{
+			Status: "WARN",
+			Message: fmt.Sprintf(
+				`Login shell %q is not zsh/bash (unsupported). "anthro-env init" assumes zsh when $SHELL is unrecognized and appends to ~/.zshrc — use zsh or bash, or run: eval "$(anthro-env hook bash)"`,
+				shellBase),
+		})
+	}
+
+	shell := DetectShell(shellPath)
+	rcFile := RCFile(shell)
+	if rcFile != "" {
+		if _, err := os.Stat(rcFile); err == nil {
+			rcData, _ := os.ReadFile(rcFile)
+			hookMarker := fmt.Sprintf("anthro-env hook %s", shell)
+			if strings.Contains(string(rcData), hookMarker) {
+				reports = append(reports, DoctorReport{Status: "OK", Message: fmt.Sprintf("%s hook installed", shell)})
+			} else {
+				reports = append(reports, DoctorReport{Status: "WARN", Message: fmt.Sprintf("%s hook not found; run anthro-env init", shell)})
+			}
 		}
 	}
 	active, err := m.CurrentProfile()

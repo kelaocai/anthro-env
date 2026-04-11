@@ -12,8 +12,28 @@ const (
 	hookEnd   = "# <<< anthro-env <<<"
 )
 
+// LoginShellBase returns the basename of a login shell path (e.g. /bin/zsh -> zsh).
+// Empty path yields "".
+func LoginShellBase(shellPath string) string {
+	s := strings.TrimSpace(shellPath)
+	if s == "" {
+		return ""
+	}
+	return filepath.Base(s)
+}
+
+// SupportedHookShell reports whether anthro-env provides a hook for this shell name.
+func SupportedHookShell(base string) bool {
+	switch base {
+	case "zsh", "bash":
+		return true
+	default:
+		return false
+	}
+}
+
 func DetectShell(shell string) string {
-	base := filepath.Base(shell)
+	base := LoginShellBase(shell)
 	switch base {
 	case "zsh", "bash":
 		return base
@@ -80,7 +100,7 @@ anthro_env_cmd() {
   local rc=$?
   if [ $rc -eq 0 ]; then
     case "$1:$2" in
-      ":"|"menu:"|"init:"|"add:"|"use:"|"rm:"|"profile:use"|"profile:rm") _anthro_env_sync ;;
+      ":"|"menu:"|"init:"|"add:"|"use:"|"rm:"|"edit:"|"profile:use"|"profile:rm") _anthro_env_sync ;;
     esac
   fi
   return $rc
@@ -103,7 +123,7 @@ anthro_env_cmd() {
   local rc=$?
   if [ $rc -eq 0 ]; then
     case "$1:$2" in
-      ":"|"menu:"|"init:"|"add:"|"use:"|"rm:"|"profile:use"|"profile:rm") _anthro_env_sync ;;
+      ":"|"menu:"|"init:"|"add:"|"use:"|"rm:"|"edit:"|"profile:use"|"profile:rm") _anthro_env_sync ;;
     esac
   fi
   return $rc

@@ -76,13 +76,15 @@ anthro-env menu
   anthro-env ls              # 列出所有已保存的环境
   anthro-env current         # 显示当前正在使用的环境
   anthro-env rm <name>       # 删除指定环境；<name> 为环境名称
+  anthro-env hook <zsh|bash> # 输出 shell 集成片段（init 时也会写入 rc）
+  anthro-env env             # 输出当前 profile 的可 eval 的 export（别名：export）
   anthro-env doctor          # 执行诊断检查（排查配置/依赖问题）
   anthro-env -v              # 显示版本号
 
   <name> 表示你自定义的环境名，例如：minimax、qwen、kimi。
 ```
 
-如果你之前的 profile 文件里有明文 `ANTHROPIC_AUTH_TOKEN`：
+如果你之前的 profile 文件里有明文 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`：
 
 ```bash
 anthro-env migrate-tokens
@@ -97,7 +99,8 @@ anthro-env edit <name>
 交互规则：
 - `ANTHROPIC_BASE_URL`：直接回车 = 保留原值
 - `ANTHROPIC_MODEL`：直接回车 = 保留；输入 `-` = 清空（走网关默认模型）
-- `ANTHROPIC_AUTH_TOKEN`：直接回车 = 保留 Keychain 当前值；输入 `-` = 从 Keychain 删除；输入新值 = 覆盖
+- `API credential`：直接回车 = 保留 Keychain 当前值；输入 `-` = 从 Keychain 删除；输入新值 = 覆盖
+- `MiniMax` profile 会导出成 `ANTHROPIC_API_KEY`；其他 provider 默认导出成 `ANTHROPIC_AUTH_TOKEN`
 
 示例：
 
@@ -114,7 +117,7 @@ anthro-env migrate-tokens
 ```
 
 这个命令会：
-- 读取 profile 文件中的明文 `ANTHROPIC_AUTH_TOKEN`
+- 读取 profile 文件中的明文 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`
 - 写入对应 profile 的 macOS Keychain
 - 从 profile 文件删除明文 token
 - 输出迁移统计（`migrated` / `skipped`）
@@ -143,18 +146,20 @@ ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5
 ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5
 ```
 
-### 示例 2：MiniMax-M2.5
+### 示例 2：MiniMax-M2.7
 
 ```bash
-ANTHROPIC_AUTH_TOKEN=sk-********
-ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
+ANTHROPIC_API_KEY=sk-********
+ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-ANTHROPIC_MODEL=MiniMax-M2.5
-ANTHROPIC_SMALL_FAST_MODEL=MiniMax-M2.5
-ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.5
-ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.5
-ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.5
+ANTHROPIC_MODEL=MiniMax-M2.7
+ANTHROPIC_SMALL_FAST_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_SONNET_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_OPUS_MODEL=MiniMax-M2.7
+ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M2.7
 ```
+
+MiniMax 当前的 Anthropic 兼容入口应使用 `ANTHROPIC_API_KEY` 和 `api.minimaxi.com`。
 
 ### 示例 3：ai-router（走网关默认模型路由）
 
@@ -182,7 +187,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 - `anthro-env menu`
 - `anthro-env use xxx`
 
-如果该文件里有明文 `ANTHROPIC_AUTH_TOKEN`，建议执行：
+如果该文件里有明文 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`，建议执行：
 
 ```bash
 anthro-env migrate-tokens
