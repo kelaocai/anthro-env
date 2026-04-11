@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.8
+
+- Interactive `menu`: handle wrapped `EAGAIN` on non-blocking stdin (fixes immediate read error on macOS)
+- Fix interactive menu redraw by clearing the correct number of lines (no duplicate `[0] Exit` rows)
+- Default selection highlights the current profile; numbered `[n]` entries in the interactive list
+- Single terminal cleanup path: restore via `defer` only
+- Propagate `UseProfile` errors from interactive menu (non-zero exit, stderr)
+- Add menu-related unit tests in `internal/ui`
+
 ## 0.1.7
 
 - Deterministic key order in `anthro-env env` / `export` output

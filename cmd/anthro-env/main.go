@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/anthro-env/anthro-env/internal/core"
 	"github.com/anthro-env/anthro-env/internal/ui"
+	"golang.org/x/term"
 )
 
-var version = "0.1.7"
+var version = "0.1.8"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -144,6 +147,12 @@ func runInit(mgr *core.Manager) error {
 	return nil
 }
 
+// stdinWouldBlock reports whether err is EAGAIN/EWOULDBLOCK from a non-blocking os.File Read.
+// os.Stdin.Read wraps syscall errors in *fs.PathError, so direct == syscall.EAGAIN fails.
+func stdinWouldBlock(err error) bool {
+	return err != nil && (errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK))
+}
+
 func runMenu(mgr *core.Manager) error {
 	profiles, err := mgr.ListProfiles()
 	if err != nil {
@@ -162,7 +171,18 @@ func runMenu(mgr *core.Manager) error {
 		activeDisplay = ui.BoldGreen(active)
 	}
 	fmt.Printf("Current profile: %s\n", activeDisplay)
-	fmt.Println("Select a profile:")
+	fmt.Println("Select a profile (use arrow keys, Enter to select, Esc to exit):")
+	fmt.Println()
+
+	// Check if terminal supports interactive mode
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		return runMenuNonInteractive(mgr, profiles, active)
+	}
+
+	return runMenuInteractive(mgr, profiles, active)
+}
+
+func runMenuNonInteractive(mgr *core.Manager, profiles []string, active string) error {
 	fmt.Println("[0] Exit")
 	for i, p := range profiles {
 		model, _ := mgr.ProfileModel(p)
@@ -203,6 +223,174 @@ func runMenu(mgr *core.Manager) error {
 	}
 	fmt.Printf("Switched to profile: %s\n", name)
 	return nil
+}
+
+func runMenuInteractive(mgr *core.Manager, profiles []string, active string) error {
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		// Fall back to non-interactive mode
+		return runMenuNonInteractive(mgr, profiles, active)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// Set stdin to non-blocking mode
+	if err := syscall.SetNonblock(int(os.Stdin.Fd()), true); err != nil {
+		return err
+	}
+	defer syscall.SetNonblock(int(os.Stdin.Fd()), false)
+
+	selected := 0
+	// Default selection to current profile (or 0 = Exit if none)
+	if active != "" {
+		for i, p := range profiles {
+			if p == active {
+				selected = i + 1
+				break
+			}
+		}
+	}
+	total := len(profiles) + 1 // +1 for Exit option
+	// Cursor for redraw sits on the "Selected:" line below the menu; clear that row plus every menu row.
+	menuLines := len(profiles) + 1
+	redrawLines := menuLines + 1
+
+	clearLines := func(n int) {
+		for i := 0; i < n; i++ {
+			fmt.Print("\033[2K\033[1G") // Clear line and go to column 1
+			if i < n-1 {
+				fmt.Print("\033[A") // Move cursor up
+			}
+		}
+	}
+
+	printMenu := func() {
+		fmt.Print("\r\033[K") // Clear from cursor to end of line
+		fmt.Println("[0] Exit")
+		for i, p := range profiles {
+			model, _ := mgr.ProfileModel(p)
+			if model == "" {
+				model = "-"
+			}
+			tag := ""
+			num := i + 1
+			if p == active {
+				tag = " (current"
+				if model != "" {
+					tag += ", model: " + model
+				}
+				tag += ")"
+				if num == selected {
+					fmt.Printf("\r[%d] \033[1;32m▶ %s%s\033[0m\n", num, ui.BoldGreen(p), tag)
+				} else {
+					fmt.Printf("\r[%d] %s%s\n", num, ui.BoldGreen(p), tag)
+				}
+			} else {
+				tag = " (model: " + model + ")"
+				if num == selected {
+					fmt.Printf("\r[%d] \033[1;32m▶ %s%s\033[0m\n", num, p, tag)
+				} else {
+					fmt.Printf("\r[%d] %s%s\n", num, p, tag)
+				}
+			}
+		}
+	}
+
+	// Initial print (cursor ends on the line below the last profile)
+	printMenu()
+	fmt.Print("\r\033[K") // clear the blank line after menu
+	fmt.Print("Selected: ")
+
+	for {
+		b := make([]byte, 1)
+		n, err := os.Stdin.Read(b)
+		if err != nil {
+			if stdinWouldBlock(err) {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+
+		switch b[0] {
+		case 13: // Enter
+			clearLines(redrawLines)
+			if selected == 0 {
+				fmt.Println("Canceled")
+				return nil
+			}
+			name := profiles[selected-1]
+			if err := mgr.UseProfile(name); err != nil {
+				return err
+			}
+			fmt.Printf("Switched to profile: %s\n", name)
+			return nil
+		case 27: // ESC or arrow key start
+			// Wait a bit to see if more bytes arrive (arrow key) or not (ESC alone)
+			time.Sleep(50 * time.Millisecond)
+			b2 := make([]byte, 1)
+			n2, err := os.Stdin.Read(b2)
+			if n2 == 0 {
+				if err != nil && !stdinWouldBlock(err) {
+					return err
+				}
+				clearLines(redrawLines)
+				fmt.Println("Canceled")
+				return nil
+			}
+			if err != nil && !stdinWouldBlock(err) {
+				return err
+			}
+			if b2[0] == 91 { // '[' - arrow key sequence continues
+				b3 := make([]byte, 1)
+				for attempts := 0; attempts < 40; attempts++ {
+					n3, err3 := os.Stdin.Read(b3)
+					if n3 > 0 {
+						break
+					}
+					if err3 != nil && !stdinWouldBlock(err3) {
+						return err3
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
+				switch b3[0] {
+				case 65: // Up arrow
+					if selected > 0 {
+						selected--
+						clearLines(redrawLines)
+						printMenu()
+						fmt.Print("\r\033[K")
+						fmt.Print("Selected: ")
+					}
+				case 66: // Down arrow
+					if selected < total-1 {
+						selected++
+						clearLines(redrawLines)
+						printMenu()
+						fmt.Print("\r\033[K")
+						fmt.Print("Selected: ")
+					}
+				}
+			}
+		case '0':
+			selected = 0
+			clearLines(redrawLines)
+			printMenu()
+			fmt.Print("\r\033[K")
+			fmt.Print("Selected: ")
+		case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			num := int(b[0] - '0')
+			if num < total {
+				selected = num
+				clearLines(redrawLines)
+				printMenu()
+				fmt.Print("\r\033[K")
+				fmt.Print("Selected: ")
+			}
+		}
+	}
 }
 
 func runProfile(mgr *core.Manager, args []string) error {
