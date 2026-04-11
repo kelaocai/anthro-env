@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- feat: 交互式菜单支持键盘上下选择（↑↓）、ESC 取消、数字键快速选择
+- feat: 当前激活的 profile 默认选中
+- fix: 修复终端恢复导致的 % 显示问题
+
 ## 0.1.9
 
 - README: add updated screenshot

@@ -17,7 +17,7 @@ import (
 	"golang.org/x/term"
 )
 
-var version = "0.1.9"
+var version = "0.2.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -231,13 +231,24 @@ func runMenuInteractive(mgr *core.Manager, profiles []string, active string) err
 		// Fall back to non-interactive mode
 		return runMenuNonInteractive(mgr, profiles, active)
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 	// Set stdin to non-blocking mode
 	if err := syscall.SetNonblock(int(os.Stdin.Fd()), true); err != nil {
+		term.Restore(int(os.Stdin.Fd()), oldState)
 		return err
 	}
-	defer syscall.SetNonblock(int(os.Stdin.Fd()), false)
+
+	// Track cleanup to avoid double restore via deferred calls
+	cleaned := false
+	cleanup := func() {
+		if cleaned {
+			return
+		}
+		cleaned = true
+		syscall.SetNonblock(int(os.Stdin.Fd()), false)
+		term.Restore(int(os.Stdin.Fd()), oldState)
+	}
+	defer cleanup()
 
 	selected := 0
 	// Default selection to current profile (or 0 = Exit if none)
@@ -318,13 +329,17 @@ func runMenuInteractive(mgr *core.Manager, profiles []string, active string) err
 		case 13: // Enter
 			clearLines(redrawLines)
 			if selected == 0 {
+				cleanup()
 				fmt.Println("Canceled")
 				return nil
 			}
 			name := profiles[selected-1]
 			if err := mgr.UseProfile(name); err != nil {
-				return err
+				cleanup()
+				fmt.Printf("Error: %v\n", err)
+				return nil
 			}
+			cleanup()
 			fmt.Printf("Switched to profile: %s\n", name)
 			return nil
 		case 27: // ESC or arrow key start
@@ -337,6 +352,7 @@ func runMenuInteractive(mgr *core.Manager, profiles []string, active string) err
 					return err
 				}
 				clearLines(redrawLines)
+				cleanup()
 				fmt.Println("Canceled")
 				return nil
 			}
