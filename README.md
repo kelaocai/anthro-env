@@ -36,7 +36,7 @@ Manual shell edits quickly become messy.
 
 ### screenshots
 
-<img width="419" height="219" alt="image" src="https://github.com/user-attachments/assets/ca136501-52aa-4717-868e-4088d3d4e8e2" />
+<img width="676" height="261" alt="SCR-20260411-rcxo" src="https://github.com/user-attachments/assets/3ddda67a-bde5-4218-8cbe-9b099eb7395c" />
 
 
 ## Install
